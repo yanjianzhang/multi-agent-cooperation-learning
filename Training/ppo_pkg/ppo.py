@@ -17,14 +17,16 @@ import time
 from copy import deepcopy
 import ppo_pkg.core as core
 from ppo_pkg.specs import pi_specs, v_specs
-from spinup.utils.logx import EpochLogger
-from spinup.utils.mpi_tf import MpiAdamOptimizer, sync_all_params
-from spinup.utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
+from spinup_bis.utils.logx import EpochLogger
+from spinup_bis.utils.mpi_tf import sync_all_params, MpiAdamOptimizer
+# from utils import MpiAdamOptimizer, sync_all_params
+from spinup_bis.utils.mpi_tools import mpi_fork, mpi_avg, proc_id, mpi_statistics_scalar, num_procs
 from gym.spaces import Box, Discrete, Dict, MultiDiscrete, Tuple
 
 import sys
 sys.path.append('../ma_policy/')
 from ma_policy.MA_policy import MAPolicy
+tf.compat.v1.disable_eager_execution()
 
 # ==================================================================================================== #
 # ====================================== PPO EXPERIENCE BUFFER ======================================= #
@@ -245,7 +247,7 @@ def ppo(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=33,
 
     ## Random seed setting
     seed += 10000 * proc_id()
-    tf.set_random_seed(seed)
+    tf.random.set_seed(seed)
     np.random.seed(seed)
 
     ## Environment instantiation
@@ -257,7 +259,7 @@ def ppo(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=33,
     policies = []
 
     #TensorFlow session
-    sess = tf.Session()
+    sess = tf.compat.v1.Session()
 
     #Build policy anc value networks
     MAP = MAPolicy(scope='policy_0', ob_space=env.observation_space, ac_space=env.action_space, network_spec=pi_specs, normalize=True, v_network_spec=v_specs)
@@ -280,7 +282,10 @@ def ppo(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=33,
     # Append aux and main placeholders
     # Need placeholders in *this* order later (to zip with data from buffer)
     new_phs = [adv_ph, ret_ph, logp_old_ph]
-    all_phs = np.append(map_phs, new_phs)
+    print(map_phs, "1\n")
+    print(new_phs, "2\n")
+    # print(tf.cast(map_phs, dtype=tf.float32), "3\n")
+    all_phs = [map_phs] + [new_phs]
 
     # Intantiate Experience buffer
     local_steps_per_epoch = int(steps_per_epoch / num_procs())
@@ -303,11 +308,11 @@ def ppo(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=33,
     clipfrac = tf.reduce_mean(tf.cast(clipped, tf.float32))                     # a measure of clipping for posterior analysis
 
     # Optimizers
-    train_pi = MpiAdamOptimizer(learning_rate=pi_lr).minimize(pi_loss)          #Policy network optimizer
-    train_v = MpiAdamOptimizer(learning_rate=vf_lr).minimize(v_loss)            #Value network optimizer
+    train_pi = MpiAdamOptimizer(learning_rate=pi_lr).minimize(pi_loss, var_list=None)          #Policy network optimizer
+    train_v = MpiAdamOptimizer(learning_rate=vf_lr).minimize(v_loss, var_list=None)            #Value network optimizer
 
     #initialize TensorFlow variabels
-    sess.run(tf.global_variables_initializer())
+    sess.run(tf.compat.v1.global_variables_initializer())
 
     # Sync params across processes
     sess.run(sync_all_params())
@@ -324,7 +329,7 @@ def ppo(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=33,
 
     logger_inputs = map_phs_dict
 
-    logger.setup_tf_saver(sess, inputs=logger_inputs, outputs=logger_outputs)
+    # logger.setup_tf_saver(sess, inputs=logger_inputs, outputs=logger_outputs)
 
     # ======================================================================== #
     # ===================== Auxiliary Training Functions ===================== #
@@ -384,7 +389,7 @@ def ppo(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=33,
         aux_inputs = {k:v for k,v in zip(new_phs, buf_data)}
 
         #for the training, the actions taken during the experience loop are also inputs to the network
-        extra_dict = {k:v for k,v in buf.act_buf.items() if k is not 'vpred'}
+        extra_dict = {k:v for k,v in buf.act_buf.items() if k != 'vpred'}
 
         for k,v in extra_dict.items():
             if k == 'action_movement':
@@ -506,7 +511,7 @@ def ppo(env_fn, actor_critic=core.mlp_actor_critic, ac_kwargs=dict(), seed=33,
         # Save model
         if (epoch % save_freq == 0) or (epoch == epochs-1):
             print("Saved epoch: ", epoch)
-            logger.save_state({'env': env}, None)
+            # logger.save_state({'env': env}, None)
 
         # Perform PPO update!
         update()
@@ -548,7 +553,7 @@ if __name__ == '__main__':
 
     mpi_fork(args.cpu)  # run parallel code with mpi
 
-    from spinup.utils.run_utils import setup_logger_kwargs
+    from spinup_bis.utils.run_utils import setup_logger_kwargs
     logger_kwargs = setup_logger_kwargs(args.exp_name, args.seed)
 
     ppo(lambda : gym.make(args.env), actor_critic=core.mlp_actor_critic,

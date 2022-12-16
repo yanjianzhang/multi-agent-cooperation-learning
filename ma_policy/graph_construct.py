@@ -10,7 +10,7 @@ from ma_policy.util import shape_list
 from ma_policy.layers import (entity_avg_pooling_masked, entity_max_pooling_masked,
                               entity_concat, concat_entity_masks, residual_sa_block,
                               circ_conv1d)
-
+from layers import layer_norm_func
 logger = logging.getLogger(__name__)
 
 
@@ -99,7 +99,7 @@ def construct_tf_graph(all_inputs, spec, act, scope='', reuse=False,):
     logger.info(f"Spec:\n{spec}")
     entity_locations = {}
     reset_ops = []
-    with tf.variable_scope(scope, reuse=reuse):
+    with tf.compat.v1.variable_scope(scope, reuse=reuse):
         for i, layer in enumerate(spec):
             try:
                 layer = deepcopy(layer)
@@ -107,7 +107,7 @@ def construct_tf_graph(all_inputs, spec, act, scope='', reuse=False,):
                 extra_layer_scope = layer.pop('scope', '')
                 nodes_in = layer.pop('nodes_in', ['main'])
                 nodes_out = layer.pop('nodes_out', ['main'])
-                with tf.variable_scope(extra_layer_scope, reuse=reuse):
+                with tf.compat.v1.variable_scope(extra_layer_scope, reuse=reuse):
                     if layer_type == 'dense':
                         assert len(nodes_in) == len(nodes_out), f"Dense layer must have same number of nodes in as nodes out. \
                             Nodes in: {nodes_in}, Nodes out {nodes_out}"
@@ -115,26 +115,26 @@ def construct_tf_graph(all_inputs, spec, act, scope='', reuse=False,):
                         layer['activation'] = valid_activations[layer['activation']]
                         layer_name = layer.pop('layer_name', f'dense{i}')
                         for j in range(len(nodes_in)):
-                            inp[nodes_out[j]] = tf.layers.dense(inp[nodes_in[j]],
+                            inp[nodes_out[j]] = tf.compat.v1.layers.dense(inp[nodes_in[j]],
                                                                 name=f'{layer_name}-{j}',
-                                                                kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                                                                kernel_initializer=tf.keras.initializers.GlorotUniform(),
                                                                 reuse=reuse,
                                                                 **layer)
                     elif layer_type == 'lstm':
                         layer_name = layer.pop('layer_name', f'lstm{i}')
-                        with tf.variable_scope(layer_name, reuse=reuse):
+                        with tf.compat.v1.variable_scope(layer_name, reuse=reuse):
                             assert len(nodes_in) == len(nodes_out) == 1
-                            cell = tf.contrib.rnn.BasicLSTMCell(layer['units'])
-                            initial_state = tf.contrib.rnn.LSTMStateTuple(inp[scope + f'_lstm{i}_state_c'],
+                            cell = tf.compat.v1.nn.rnn_cell.BasicLSTMCell(layer['units'])
+                            initial_state = tf.compat.v1.nn.rnn_cell.LSTMStateTuple(inp[scope + f'_lstm{i}_state_c'],
                                                                           inp[scope + f'_lstm{i}_state_h'])
-                            inp[nodes_out[0]], state_out = tf.nn.dynamic_rnn(cell,
+                            inp[nodes_out[0]], state_out = tf.compat.v1.nn.dynamic_rnn(cell,
                                                                              inp[nodes_in[0]],
                                                                              initial_state=initial_state)
                             state_variables[scope + f'_lstm{i}_state_c'] = state_out.c
                             state_variables[scope + f'_lstm{i}_state_h'] = state_out.h
                     elif layer_type == 'concat':
                         layer_name = layer.pop('layer_name', f'concat{i}')
-                        with tf.variable_scope(layer_name):
+                        with tf.compat.v1.variable_scope(layer_name):
                             assert len(nodes_out) == 1, f"Concat op must only have one node out. Nodes Out: {nodes_out}"
                             assert len(nodes_in) == 2, f"Concat op must have two nodes in. Nodes In: {nodes_in}"
                             assert (len(shape_list(inp[nodes_in[0]])) == len(shape_list(inp[nodes_in[1]])) or
@@ -151,7 +151,7 @@ def construct_tf_graph(all_inputs, spec, act, scope='', reuse=False,):
                             inp[nodes_out[0]] = tf.concat([inp0, inp1], -1)
                     elif layer_type == 'entity_concat':
                         layer_name = layer.pop('layer_name', f'entity-concat{i}')
-                        with tf.variable_scope(layer_name):
+                        with tf.compat.v1.variable_scope(layer_name):
                             ec_inps = [inp[node_in] for node_in in nodes_in]
                             inp[nodes_out[0]] = entity_concat(ec_inps)
                             if "masks_in" in layer:
@@ -168,7 +168,7 @@ def construct_tf_graph(all_inputs, spec, act, scope='', reuse=False,):
                             entity_locations[nodes_out[0]] = _ent_locs
                     elif layer_type == 'residual_sa_block':
                         layer_name = layer.pop('layer_name', f'self-attention{i}')
-                        with tf.variable_scope(layer_name):
+                        with tf.compat.v1.variable_scope(layer_name):
                             assert len(nodes_in) == 1, "self attention should only have one input"
                             sa_inp = inp[nodes_in[0]]
 
@@ -182,7 +182,7 @@ def construct_tf_graph(all_inputs, spec, act, scope='', reuse=False,):
                         assert pool_type in ['avg_pooling', 'max_pooling'], f"Pooling type {pool_type} \
                             not available. Pooling type must be either 'avg_pooling' or 'max_pooling'."
                         layer_name = layer.pop('layer_name', f'entity-{pool_type}-pooling{i}')
-                        with tf.variable_scope(layer_name):
+                        with tf.compat.v1.variable_scope(layer_name):
                             if 'mask' in layer:
                                 mask = inp[layer.pop('mask')]
                                 assert mask.get_shape()[-1] == inp[nodes_in[0]].get_shape()[-2], \
@@ -201,19 +201,19 @@ def construct_tf_graph(all_inputs, spec, act, scope='', reuse=False,):
                         assert len(nodes_in) == len(nodes_out) == 1, f"Circular convolution layer must have one nodes and one nodes out. \
                             Nodes in: {nodes_in}, Nodes out {nodes_out}"
                         layer_name = layer.pop('layer_name', f'circ_conv1d{i}')
-                        with tf.variable_scope(layer_name, reuse=reuse):
+                        with tf.compat.v1.variable_scope(layer_name, reuse=reuse):
                             inp[nodes_out[0]] = circ_conv1d(inp[nodes_in[0]], **layer)
                     elif layer_type == 'flatten_outer':
                         layer_name = layer.pop('layer_name', f'flatten_outer{i}')
-                        with tf.variable_scope(layer_name, reuse=reuse):
+                        with tf.compat.v1.variable_scope(layer_name, reuse=reuse):
                             # flatten all dimensions higher or equal to 3
                             inp0 = inp[nodes_in[0]]
                             inp0_shape = shape_list(inp0)
                             inp[nodes_out[0]] = tf.reshape(inp0, shape=inp0_shape[0:2] + [np.prod(inp0_shape[2:])])
                     elif layer_type == "layernorm":
                         layer_name = layer.pop('layer_name', f'layernorm{i}')
-                        with tf.variable_scope(layer_name, reuse=reuse):
-                            inp[nodes_out[0]] = tf.contrib.layers.layer_norm(inp[nodes_in[0]], begin_norm_axis=2)
+                        with tf.compat.v1.variable_scope(layer_name, reuse=reuse):
+                            inp[nodes_out[0]] = layer_norm_func(inp[nodes_in[0]], begin_norm_axis=2)
                     else:
                         raise NotImplementedError(f"Layer type -- {layer_type} -- not yet implemented")
             except Exception:

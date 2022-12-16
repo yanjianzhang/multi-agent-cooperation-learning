@@ -6,7 +6,7 @@ File run automatically in order to visualize and evaluate a trained policy by th
 
 """
 
-from spinup.utils.test_policy_ppo import load_policy_and_env, run_policy
+from spinup_bis.utils.test_policy import load_policy_and_env, run_policy
 
 import sys
 sys.path.append('../')

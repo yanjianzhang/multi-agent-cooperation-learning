@@ -37,7 +37,7 @@ class VariableSchema(object):
 
     def placeholder(self, *, batch=None, timesteps=None, name=None):
         real_shape = self._substituted_shape(batch, timesteps)
-        return tf.placeholder(self.dtype, real_shape, name=name)
+        return tf.compat.v1.placeholder(self.dtype, real_shape, name=name)
 
     def variable(self, *, name, batch=None, timesteps=None, **kwargs):
         real_shape = self._substituted_shape(batch, timesteps)

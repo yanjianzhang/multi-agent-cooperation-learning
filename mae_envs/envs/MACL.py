@@ -37,7 +37,6 @@ class MACLRewardWrapper(gym.Wrapper):
     '''
     def __init__(self, env, reward_scale=1.0, rew_type='SingleWalk', fs=6.):
         super().__init__(env)
-        \
         self.n_agents = self.unwrapped.n_agents #Number of agents
         self.reward_scale = reward_scale        #Reward scale       
         self.rew_type = rew_type                #Reward type                      

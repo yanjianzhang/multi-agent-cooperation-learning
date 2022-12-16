@@ -13,7 +13,7 @@ def _interpolate(old, new, old_weight, scaled_weight):
 
 
 def _std_from_mean_and_square(mean, square):
-    var_est = tf.to_float(square) - tf.square(mean)
+    var_est = tf.cast(square, dtype=tf.float32) - tf.square(mean)
     return tf.sqrt(tf.maximum(var_est, 1e-2))
 
 
@@ -33,16 +33,16 @@ class EMAMeanStd(object):
     def __init__(self, beta, scope="ema", reuse=None, epsilon=1e-6, per_element_update=False, shape=(), version=1):
         self._version = version
         self._per_element_update = per_element_update
-        with tf.variable_scope(scope, reuse=reuse):
+        with tf.compat.v1.variable_scope(scope, reuse=reuse):
             # Expected value of x
-            self._biased_mean = tf.get_variable(
+            self._biased_mean = tf.compat.v1.get_variable(
                 dtype=tf.float32,
                 shape=shape,
                 initializer=tf.constant_initializer(0.0),
                 name="mean",
                 trainable=False)
             # Expected value of x^2
-            self._biased_sq = tf.get_variable(
+            self._biased_sq = tf.compat.v1.get_variable(
                 dtype=tf.float32,
                 shape=shape,
                 initializer=tf.constant_initializer(0.0),
@@ -51,7 +51,7 @@ class EMAMeanStd(object):
             # How to integrate observations of x over time
             self._one_minus_beta = 1.0 - beta
             # Weight placed on ema[-1] == 0.0 which we divide out to debias
-            self._debiasing_term = tf.get_variable(
+            self._debiasing_term = tf.compat.v1.get_variable(
                 dtype=tf.float32,
                 shape=shape,
                 initializer=tf.constant_initializer(0.0),
@@ -75,14 +75,14 @@ class EMAMeanStd(object):
             scaled_weight *= tf.cast(size, tf.float64)
         one = tf.constant(1.0, dtype=tf.float64)
         old_weight = one - scaled_weight
-        old_weight_fp32 = tf.to_float(old_weight)
-        scaled_weight_fp32 = tf.to_float(scaled_weight)
+        old_weight_fp32 = tf.cast(old_weight, dtype=tf.float32)
+        scaled_weight_fp32 = tf.cast(scaled_weight, dtype=tf.float32)
         return tf.group(
             # increment the running debiasing term by the contribution of the initial ema[-1] == 0.0 observation
             # (e.g. boost the observed value by how much it was initially discounted on step 1)
-            tf.assign(self._debiasing_term, tf.to_float(_interpolate(old=tf.cast(self._debiasing_term, tf.float64), new=one, old_weight=old_weight, scaled_weight=scaled_weight))),
+            tf.assign(self._debiasing_term, tf.cast(_interpolate(old=tf.cast(self._debiasing_term, tf.float64), new=one, old_weight=old_weight, scaled_weight=scaled_weight)), dtype=tf.float32),
             # do an interpolation on the expected value of X
-            tf.assign(self._biased_mean, _interpolate(old=self._biased_mean, new=tf.reduce_mean(tf.to_float(x), axis=axes), old_weight=old_weight_fp32, scaled_weight=scaled_weight_fp32)),
+            tf.assign(self._biased_mean, _interpolate(old=self._biased_mean, new=tf.reduce_mean(tf.cast(x, dtype=tf.float32), axis=axes), old_weight=old_weight_fp32, scaled_weight=scaled_weight_fp32)),
             # do an interpolation on the expected value of X^2
-            tf.assign(self._biased_sq, _interpolate(old=self._biased_sq, new=tf.reduce_mean(tf.square(tf.to_float(x)), axis=axes), old_weight=old_weight_fp32, scaled_weight=scaled_weight_fp32)),
+            tf.assign(self._biased_sq, _interpolate(old=self._biased_sq, new=tf.reduce_mean(tf.square(tf.cast(x, dtype=tf.float32)), axis=axes), old_weight=old_weight_fp32, scaled_weight=scaled_weight_fp32)),
         )
